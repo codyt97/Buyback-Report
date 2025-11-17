@@ -7,12 +7,18 @@ type AnyRow = Record<string, any>;
 
 type ResultRow = {
   imei: string;
+  name: string;
   description: string;
+  familySubcategory: string;
   bbDate?: Date | null;
   shipDate?: Date | null;
   inventoryFlag: 1 | 2;
   daysDiff: number | null;
 };
+
+type SortField = "inventoryFlag" | "daysDiff" | null;
+type SortDirection = "asc" | "desc" | null;
+type ActiveMenu = "inventory" | "dates" | null;
 
 function parseDateMDY(value: string | undefined | null): Date | null {
   if (!value) return null;
@@ -69,6 +75,33 @@ const td: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const menuBox: React.CSSProperties = {
+  position: "absolute",
+  top: "100%",
+  left: 0,
+  marginTop: 4,
+  minWidth: 200,
+  background: "#fff",
+  border: "1px solid #ccc",
+  borderRadius: 4,
+  boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+  padding: 8,
+  zIndex: 20,
+  fontSize: 12,
+};
+
+const menuItem: React.CSSProperties = {
+  padding: "4px 6px",
+  cursor: "pointer",
+};
+
+const menuItemLabel: React.CSSProperties = {
+  padding: "4px 0",
+  fontWeight: 600,
+  fontSize: 11,
+  color: "#555",
+};
+
 const HomePage: React.FC = () => {
   const [inventoryFile, setInventoryFile] = useState<File | null>(null);
   const [poFile, setPoFile] = useState<File | null>(null);
@@ -83,6 +116,10 @@ const HomePage: React.FC = () => {
   );
   const [minDays, setMinDays] = useState<string>("");
   const [maxDays, setMaxDays] = useState<string>("");
+
+  const [sortField, setSortField] = useState<SortField>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const [activeMenu, setActiveMenu] = useState<ActiveMenu>(null);
 
   const handleProcess = async () => {
     setError(null);
@@ -103,12 +140,14 @@ const HomePage: React.FC = () => {
         parseCsvFile(soFile),
       ]);
 
-      // --- PO (Buyback) map: IMEI -> { bbDate, description } ---
+      // --- PO (Buyback) map: IMEI -> { bbDate, name, description, familySubcategory } ---
       const bbMap = new Map<
         string,
         {
           bbDate: Date | null;
+          name?: string;
           description?: string;
+          familySubcategory?: string;
         }
       >();
 
@@ -118,20 +157,23 @@ const HomePage: React.FC = () => {
         if (!imei) continue;
 
         const bbDate = parseDateMDY(r["Date"]);
+        const name = (r["Name"] ?? "").toString() || undefined;
         const description = (r["Description"] ?? "").toString() || undefined;
+        const familySubcategory =
+          (r["Family Subcategory"] ?? "").toString() || undefined;
 
         const existing = bbMap.get(imei);
         if (!existing) {
-          bbMap.set(imei, { bbDate, description });
+          bbMap.set(imei, { bbDate, name, description, familySubcategory });
         } else {
-          // Keep earliest BB date
           if (bbDate && (!existing.bbDate || bbDate < existing.bbDate)) {
             existing.bbDate = bbDate;
           }
-          // Fill description if missing
-          if (!existing.description && description) {
+          if (!existing.name && name) existing.name = name;
+          if (!existing.description && description)
             existing.description = description;
-          }
+          if (!existing.familySubcategory && familySubcategory)
+            existing.familySubcategory = familySubcategory;
         }
       }
 
@@ -147,7 +189,6 @@ const HomePage: React.FC = () => {
         if (!existing) {
           shipMap.set(imei, { shipDate });
         } else {
-          // Keep earliest ship date
           if (shipDate && (!existing.shipDate || shipDate < existing.shipDate)) {
             existing.shipDate = shipDate;
           }
@@ -174,9 +215,8 @@ const HomePage: React.FC = () => {
         }
       }
 
-      // --- IMEIs: ONLY from PO file ---
+      // Only IMEIs from PO file
       const allImeis = new Set<string>([...bbMap.keys()]);
-
       const reportDate = new Date();
 
       const result: ResultRow[] = [];
@@ -199,7 +239,9 @@ const HomePage: React.FC = () => {
 
         result.push({
           imei,
+          name: bbInfo?.name ?? "",
           description: bbInfo?.description ?? "",
+          familySubcategory: bbInfo?.familySubcategory ?? "",
           bbDate,
           shipDate,
           inventoryFlag: inInventory ? 1 : 2,
@@ -207,8 +249,16 @@ const HomePage: React.FC = () => {
         });
       }
 
-      // Sort by IMEI (can change to bbDate if you prefer)
       result.sort((a, b) => a.imei.localeCompare(b.imei));
+
+      // reset filters/sorts when new data comes in
+      setSearch("");
+      setInventoryFilter("all");
+      setMinDays("");
+      setMaxDays("");
+      setSortField(null);
+      setSortDirection(null);
+      setActiveMenu(null);
 
       setRows(result);
     } catch (e: any) {
@@ -219,8 +269,8 @@ const HomePage: React.FC = () => {
     }
   };
 
+  // ---- FILTERING ----
   const filteredRows = rows.filter((r) => {
-    // Search by IMEI
     if (
       search.trim() &&
       !r.imei.toLowerCase().includes(search.trim().toLowerCase())
@@ -228,11 +278,9 @@ const HomePage: React.FC = () => {
       return false;
     }
 
-    // Inventory filter
     if (inventoryFilter === "1" && r.inventoryFlag !== 1) return false;
     if (inventoryFilter === "2" && r.inventoryFlag !== 2) return false;
 
-    // Dates (days) filter
     const min = minDays.trim() ? Number(minDays) : null;
     const max = maxDays.trim() ? Number(maxDays) : null;
     const hasDaysFilter = min !== null || max !== null;
@@ -246,11 +294,50 @@ const HomePage: React.FC = () => {
     return true;
   });
 
+  // ---- SORTING ----
+  const sortedRows = React.useMemo(() => {
+    if (!sortField || !sortDirection) return filteredRows;
+
+    const rowsCopy = [...filteredRows];
+
+    rowsCopy.sort((a, b) => {
+      const av =
+        sortField === "inventoryFlag"
+          ? a.inventoryFlag
+          : a.daysDiff ?? Number.POSITIVE_INFINITY;
+      const bv =
+        sortField === "inventoryFlag"
+          ? b.inventoryFlag
+          : b.daysDiff ?? Number.POSITIVE_INFINITY;
+
+      if (av === bv) return 0;
+      if (sortDirection === "asc") {
+        return av < bv ? -1 : 1;
+      } else {
+        return av > bv ? -1 : 1;
+      }
+    });
+
+    return rowsCopy;
+  }, [filteredRows, sortField, sortDirection]);
+
   const handleClearFilters = () => {
     setSearch("");
     setInventoryFilter("all");
     setMinDays("");
     setMaxDays("");
+    setSortField(null);
+    setSortDirection(null);
+    setActiveMenu(null);
+  };
+
+  const toggleMenu = (menu: ActiveMenu) => {
+    setActiveMenu((prev) => (prev === menu ? null : menu));
+  };
+
+  const setSort = (field: SortField, direction: SortDirection) => {
+    setSortField(field);
+    setSortDirection(direction);
   };
 
   return (
@@ -259,6 +346,7 @@ const HomePage: React.FC = () => {
         Buyback & Shipping Lifecycle by IMEI
       </h1>
 
+      {/* Upload controls */}
       <div
         style={{
           display: "grid",
@@ -305,7 +393,7 @@ const HomePage: React.FC = () => {
         style={{
           padding: "8px 16px",
           borderRadius: 6,
-          border: "1px solid #ccc",
+          border: "1px solid "#ccc",
           cursor: "pointer",
           marginBottom: "16px",
         }}
@@ -319,13 +407,13 @@ const HomePage: React.FC = () => {
 
       {rows.length > 0 && (
         <>
-          {/* Filter controls (Google Sheets style) */}
+          {/* Top-level filters */}
           <div
             style={{
               display: "flex",
               flexWrap: "wrap",
               gap: 12,
-              alignItems: "flex-end",
+              alignItems: "center",
               marginBottom: 12,
             }}
           >
@@ -344,97 +432,32 @@ const HomePage: React.FC = () => {
                   padding: "6px 10px",
                   borderRadius: 4,
                   border: "1px solid #ccc",
-                  minWidth: 180,
+                  minWidth: 200,
                 }}
               />
             </div>
 
-            <div>
-              <label
-                style={{ fontWeight: 600, display: "block", marginBottom: 4 }}
-              >
-                Inventory
-              </label>
-              <select
-                value={inventoryFilter}
-                onChange={(e) =>
-                  setInventoryFilter(e.target.value as "all" | "1" | "2")
-                }
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #ccc",
-                  minWidth: 160,
-                }}
-              >
-                <option value="all">All</option>
-                <option value="1">In Inventory (1)</option>
-                <option value="2">Not in Inventory (2)</option>
-              </select>
-            </div>
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 4,
+                border: "1px solid #ccc",
+                cursor: "pointer",
+                background: "#f5f5f5",
+                marginTop: 22,
+              }}
+            >
+              Clear Filters & Sort
+            </button>
 
-            <div>
-              <label
-                style={{ fontWeight: 600, display: "block", marginBottom: 4 }}
-              >
-                Dates (days) Min
-              </label>
-              <input
-                type="number"
-                value={minDays}
-                onChange={(e) => setMinDays(e.target.value)}
-                placeholder="Min"
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #ccc",
-                  width: 100,
-                }}
-              />
-            </div>
-
-            <div>
-              <label
-                style={{ fontWeight: 600, display: "block", marginBottom: 4 }}
-              >
-                Dates (days) Max
-              </label>
-              <input
-                type="number"
-                value={maxDays}
-                onChange={(e) => setMaxDays(e.target.value)}
-                placeholder="Max"
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 4,
-                  border: "1px solid #ccc",
-                  width: 100,
-                }}
-              />
-            </div>
-
-            <div>
-              <button
-                type="button"
-                onClick={handleClearFilters}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 4,
-                  border: "1px solid #ccc",
-                  cursor: "pointer",
-                  background: "#f5f5f5",
-                }}
-              >
-                Clear Filters
-              </button>
-            </div>
-
-            <div style={{ marginLeft: "auto", fontSize: 13 }}>
-              <strong>Total IMEIs (from PO):</strong> {filteredRows.length} /
-              {rows.length}
+            <div style={{ marginLeft: "auto", fontSize: 13, marginTop: 22 }}>
+              <strong>Visible IMEIs:</strong> {sortedRows.length} / {rows.length}
             </div>
           </div>
 
+          {/* Data table */}
           <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
             <table
               style={{
@@ -446,18 +469,196 @@ const HomePage: React.FC = () => {
               <thead>
                 <tr>
                   <th style={th}>IMEI</th>
+                  <th style={th}>Name</th>
                   <th style={th}>Description</th>
+                  <th style={th}>Family Subcategory</th>
                   <th style={th}>BB (Buyback) Date</th>
                   <th style={th}>Ship Date</th>
-                  <th style={th}>Inventory (1=yes, 2=no)</th>
-                  <th style={th}>Dates (days)</th>
+
+                  {/* Inventory header with menu */}
+                  <th style={th}>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>Inventory (1=yes, 2=no)</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleMenu("inventory")}
+                          style={{
+                            border: "1px solid #bbb",
+                            borderRadius: 3,
+                            padding: "0 4px",
+                            fontSize: 10,
+                            background:
+                              activeMenu === "inventory" ? "#e0e0e0" : "#f5f5f5",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ▼
+                        </button>
+                      </div>
+
+                      {activeMenu === "inventory" && (
+                        <div style={menuBox}>
+                          <div
+                            style={menuItem}
+                            onClick={() => {
+                              setSort("inventoryFlag", "asc");
+                            }}
+                          >
+                            ▲ Sort Smallest to Largest
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => {
+                              setSort("inventoryFlag", "desc");
+                            }}
+                          >
+                            ▼ Sort Largest to Smallest
+                          </div>
+                          <hr style={{ margin: "6px 0" }} />
+                          <div style={menuItemLabel}>Filter by Inventory</div>
+                          <div
+                            style={menuItem}
+                            onClick={() => setInventoryFilter("all")}
+                          >
+                            Show All
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => setInventoryFilter("1")}
+                          >
+                            In Inventory (1)
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => setInventoryFilter("2")}
+                          >
+                            Not in Inventory (2)
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </th>
+
+                  {/* Dates header with menu */}
+                  <th style={th}>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>Dates (days)</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleMenu("dates")}
+                          style={{
+                            border: "1px solid #bbb",
+                            borderRadius: 3,
+                            padding: "0 4px",
+                            fontSize: 10,
+                            background:
+                              activeMenu === "dates" ? "#e0e0e0" : "#f5f5f5",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ▼
+                        </button>
+                      </div>
+
+                      {activeMenu === "dates" && (
+                        <div style={menuBox}>
+                          <div
+                            style={menuItem}
+                            onClick={() => {
+                              setSort("daysDiff", "asc");
+                            }}
+                          >
+                            ▲ Sort Smallest to Largest
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => {
+                              setSort("daysDiff", "desc");
+                            }}
+                          >
+                            ▼ Sort Largest to Smallest
+                          </div>
+                          <hr style={{ margin: "6px 0" }} />
+                          <div style={menuItemLabel}>Number Filters</div>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 6,
+                              alignItems: "center",
+                              marginBottom: 4,
+                            }}
+                          >
+                            <span style={{ fontSize: 11 }}>Min</span>
+                            <input
+                              type="number"
+                              value={minDays}
+                              onChange={(e) => setMinDays(e.target.value)}
+                              style={{
+                                flex: 1,
+                                padding: "4px 6px",
+                                borderRadius: 3,
+                                border: "1px solid #ccc",
+                              }}
+                            />
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 6,
+                              alignItems: "center",
+                              marginBottom: 6,
+                            }}
+                          >
+                            <span style={{ fontSize: 11 }}>Max</span>
+                            <input
+                              type="number"
+                              value={maxDays}
+                              onChange={(e) => setMaxDays(e.target.value)}
+                              style={{
+                                flex: 1,
+                                padding: "4px 6px",
+                                borderRadius: 3,
+                                border: "1px solid #ccc",
+                              }}
+                            />
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => {
+                              setMinDays("");
+                              setMaxDays("");
+                            }}
+                          >
+                            Clear Number Filter
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
-                {filteredRows.map((r) => (
+                {sortedRows.map((r) => (
                   <tr key={r.imei}>
                     <td style={td}>{r.imei}</td>
+                    <td style={td}>{r.name}</td>
                     <td style={td}>{r.description}</td>
+                    <td style={td}>{r.familySubcategory}</td>
                     <td style={td}>{formatDate(r.bbDate)}</td>
                     <td style={td}>{formatDate(r.shipDate)}</td>
                     <td style={td}>{r.inventoryFlag}</td>
