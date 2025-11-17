@@ -18,7 +18,6 @@ function parseDateMDY(value: string | undefined | null): Date | null {
   if (!value) return null;
   const v = value.toString().trim();
   if (!v) return null;
-  // Expecting formats like "5/14/2025"
   const parts = v.split("/");
   if (parts.length !== 3) return null;
   const [mStr, dStr, yStr] = parts;
@@ -53,6 +52,23 @@ function parseCsvFile(file: File): Promise<AnyRow[]> {
   });
 }
 
+const th: React.CSSProperties = {
+  textAlign: "left",
+  padding: "8px 10px",
+  borderBottom: "2px solid #ddd",
+  position: "sticky",
+  top: 0,
+  background: "#f5f5f5",
+  zIndex: 1,
+  whiteSpace: "nowrap",
+};
+
+const td: React.CSSProperties = {
+  padding: "6px 10px",
+  borderBottom: "1px solid "#eee",
+  whiteSpace: "nowrap",
+};
+
 const HomePage: React.FC = () => {
   const [inventoryFile, setInventoryFile] = useState<File | null>(null);
   const [poFile, setPoFile] = useState<File | null>(null);
@@ -79,7 +95,6 @@ const HomePage: React.FC = () => {
         parseCsvFile(soFile),
       ]);
 
-      // --- Build maps by IMEI ---
       const bbMap = new Map<
         string,
         {
@@ -100,11 +115,9 @@ const HomePage: React.FC = () => {
         if (!existing) {
           bbMap.set(imei, { bbDate, description });
         } else {
-          // Keep earliest BB date
           if (bbDate && (!existing.bbDate || bbDate < existing.bbDate)) {
             existing.bbDate = bbDate;
           }
-          // If we don't have a description yet, take it
           if (!existing.description && description) {
             existing.description = description;
           }
@@ -122,7 +135,6 @@ const HomePage: React.FC = () => {
         if (!existing) {
           shipMap.set(imei, { shipDate });
         } else {
-          // Keep earliest ship date
           if (shipDate && (!existing.shipDate || shipDate < existing.shipDate)) {
             existing.shipDate = shipDate;
           }
@@ -148,14 +160,13 @@ const HomePage: React.FC = () => {
         }
       }
 
-      // Union of all IMEIs
       const allImeis = new Set<string>([
         ...bbMap.keys(),
         ...shipMap.keys(),
         ...invSet.keys(),
       ]);
 
-      const reportDate = new Date(); // or hardcode to the report download date if you prefer
+      const reportDate = new Date();
 
       const result: ResultRow[] = [];
       for (const imei of allImeis) {
@@ -185,7 +196,6 @@ const HomePage: React.FC = () => {
         });
       }
 
-      // Optional: sort by IMEI or BB date
       result.sort((a, b) => a.imei.localeCompare(b.imei));
 
       setRows(result);
@@ -333,23 +343,6 @@ const HomePage: React.FC = () => {
       )}
     </main>
   );
-};
-
-const th: React.CSSProperties = {
-  textAlign: "left",
-  padding: "8px 10px",
-  borderBottom: "2px solid #ddd",
-  position: "sticky",
-  top: 0,
-  background: "#f5f5f5",
-  zIndex: 1,
-  whiteSpace: "nowrap",
-};
-
-const td: React.CSSProperties = {
-  padding: "6px 10px",
-  borderBottom: "1px solid #eee",
-  whiteSpace: "nowrap",
 };
 
 export default HomePage;
