@@ -18,6 +18,7 @@ function parseDateMDY(value: string | undefined | null): Date | null {
   if (!value) return null;
   const v = value.toString().trim();
   if (!v) return null;
+  // Expecting formats like "5/14/2025"
   const parts = v.split("/");
   if (parts.length !== 3) return null;
   const [mStr, dStr, yStr] = parts;
@@ -69,7 +70,6 @@ const td: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-
 const HomePage: React.FC = () => {
   const [inventoryFile, setInventoryFile] = useState<File | null>(null);
   const [poFile, setPoFile] = useState<File | null>(null);
@@ -96,6 +96,7 @@ const HomePage: React.FC = () => {
         parseCsvFile(soFile),
       ]);
 
+      // --- PO (Buyback) map: IMEI -> { bbDate, description } ---
       const bbMap = new Map<
         string,
         {
@@ -116,15 +117,18 @@ const HomePage: React.FC = () => {
         if (!existing) {
           bbMap.set(imei, { bbDate, description });
         } else {
+          // Keep earliest BB date
           if (bbDate && (!existing.bbDate || bbDate < existing.bbDate)) {
             existing.bbDate = bbDate;
           }
+          // Fill description if we don't have one yet
           if (!existing.description && description) {
             existing.description = description;
           }
         }
       }
 
+      // --- SO / ShipDoc map: IMEI -> { shipDate } ---
       const shipMap = new Map<string, { shipDate: Date | null }>();
       for (const r of soRows) {
         const rawImei = r["Lot / Serial Number"] ?? r["IMEI"];
@@ -136,12 +140,14 @@ const HomePage: React.FC = () => {
         if (!existing) {
           shipMap.set(imei, { shipDate });
         } else {
+          // Keep earliest ship date
           if (shipDate && (!existing.shipDate || shipDate < existing.shipDate)) {
             existing.shipDate = shipDate;
           }
         }
       }
 
+      // --- Inventory set: IMEIs that are available ---
       const invSet = new Set<string>();
       for (const r of invRows) {
         const rawImei = r["Lot / Serial Number"] ?? r["IMEI"];
@@ -161,11 +167,8 @@ const HomePage: React.FC = () => {
         }
       }
 
-      const allImeis = new Set<string>([
-        ...bbMap.keys(),
-        ...shipMap.keys(),
-        ...invSet.keys(),
-      ]);
+      // --- IMEIs: ONLY from PO file ---
+      const allImeis = new Set<string>([...bbMap.keys()]);
 
       const reportDate = new Date();
 
@@ -197,6 +200,7 @@ const HomePage: React.FC = () => {
         });
       }
 
+      // Sort by IMEI (or change to bbDate if you prefer)
       result.sort((a, b) => a.imei.localeCompare(b.imei));
 
       setRows(result);
@@ -290,7 +294,7 @@ const HomePage: React.FC = () => {
             }}
           >
             <div>
-              <strong>Total IMEIs:</strong> {rows.length}
+              <strong>Total IMEIs (from PO):</strong> {rows.length}
             </div>
             <input
               type="text"
