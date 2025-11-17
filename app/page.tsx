@@ -18,7 +18,6 @@ function parseDateMDY(value: string | undefined | null): Date | null {
   if (!value) return null;
   const v = value.toString().trim();
   if (!v) return null;
-  // Expecting formats like "5/14/2025"
   const parts = v.split("/");
   if (parts.length !== 3) return null;
   const [mStr, dStr, yStr] = parts;
@@ -77,14 +76,22 @@ const HomePage: React.FC = () => {
   const [rows, setRows] = useState<ResultRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
   const [search, setSearch] = useState("");
+  const [inventoryFilter, setInventoryFilter] = useState<"all" | "1" | "2">(
+    "all"
+  );
+  const [minDays, setMinDays] = useState<string>("");
+  const [maxDays, setMaxDays] = useState<string>("");
 
   const handleProcess = async () => {
     setError(null);
     setRows([]);
 
     if (!inventoryFile || !poFile || !soFile) {
-      setError("Please upload all three files: Inventory, PO (Buyback), and SO (ShipDoc).");
+      setError(
+        "Please upload all three files: Inventory, PO (Buyback), and SO (ShipDoc)."
+      );
       return;
     }
 
@@ -121,7 +128,7 @@ const HomePage: React.FC = () => {
           if (bbDate && (!existing.bbDate || bbDate < existing.bbDate)) {
             existing.bbDate = bbDate;
           }
-          // Fill description if we don't have one yet
+          // Fill description if missing
           if (!existing.description && description) {
             existing.description = description;
           }
@@ -200,7 +207,7 @@ const HomePage: React.FC = () => {
         });
       }
 
-      // Sort by IMEI (or change to bbDate if you prefer)
+      // Sort by IMEI (can change to bbDate if you prefer)
       result.sort((a, b) => a.imei.localeCompare(b.imei));
 
       setRows(result);
@@ -212,11 +219,39 @@ const HomePage: React.FC = () => {
     }
   };
 
-  const filteredRows = rows.filter((r) =>
-    search.trim()
-      ? r.imei.toLowerCase().includes(search.trim().toLowerCase())
-      : true
-  );
+  const filteredRows = rows.filter((r) => {
+    // Search by IMEI
+    if (
+      search.trim() &&
+      !r.imei.toLowerCase().includes(search.trim().toLowerCase())
+    ) {
+      return false;
+    }
+
+    // Inventory filter
+    if (inventoryFilter === "1" && r.inventoryFlag !== 1) return false;
+    if (inventoryFilter === "2" && r.inventoryFlag !== 2) return false;
+
+    // Dates (days) filter
+    const min = minDays.trim() ? Number(minDays) : null;
+    const max = maxDays.trim() ? Number(maxDays) : null;
+    const hasDaysFilter = min !== null || max !== null;
+
+    if (hasDaysFilter) {
+      if (typeof r.daysDiff !== "number") return false;
+      if (min !== null && r.daysDiff < min) return false;
+      if (max !== null && r.daysDiff > max) return false;
+    }
+
+    return true;
+  });
+
+  const handleClearFilters = () => {
+    setSearch("");
+    setInventoryFilter("all");
+    setMinDays("");
+    setMaxDays("");
+  };
 
   return (
     <main style={{ padding: "24px", fontFamily: "system-ui, sans-serif" }}>
@@ -272,7 +307,7 @@ const HomePage: React.FC = () => {
           borderRadius: 6,
           border: "1px solid #ccc",
           cursor: "pointer",
-          marginBottom: "12px",
+          marginBottom: "16px",
         }}
       >
         {loading ? "Processing..." : "Generate Table"}
@@ -284,30 +319,120 @@ const HomePage: React.FC = () => {
 
       {rows.length > 0 && (
         <>
+          {/* Filter controls (Google Sheets style) */}
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 8,
-              gap: 8,
+              flexWrap: "wrap",
+              gap: 12,
+              alignItems: "flex-end",
+              marginBottom: 12,
             }}
           >
             <div>
-              <strong>Total IMEIs (from PO):</strong> {rows.length}
+              <label
+                style={{ fontWeight: 600, display: "block", marginBottom: 4 }}
+              >
+                Search IMEI
+              </label>
+              <input
+                type="text"
+                placeholder="Search IMEI..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #ccc",
+                  minWidth: 180,
+                }}
+              />
             </div>
-            <input
-              type="text"
-              placeholder="Search IMEI..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 4,
-                border: "1px solid #ccc",
-                minWidth: 240,
-              }}
-            />
+
+            <div>
+              <label
+                style={{ fontWeight: 600, display: "block", marginBottom: 4 }}
+              >
+                Inventory
+              </label>
+              <select
+                value={inventoryFilter}
+                onChange={(e) =>
+                  setInventoryFilter(e.target.value as "all" | "1" | "2")
+                }
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #ccc",
+                  minWidth: 160,
+                }}
+              >
+                <option value="all">All</option>
+                <option value="1">In Inventory (1)</option>
+                <option value="2">Not in Inventory (2)</option>
+              </select>
+            </div>
+
+            <div>
+              <label
+                style={{ fontWeight: 600, display: "block", marginBottom: 4 }}
+              >
+                Dates (days) Min
+              </label>
+              <input
+                type="number"
+                value={minDays}
+                onChange={(e) => setMinDays(e.target.value)}
+                placeholder="Min"
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #ccc",
+                  width: 100,
+                }}
+              />
+            </div>
+
+            <div>
+              <label
+                style={{ fontWeight: 600, display: "block", marginBottom: 4 }}
+              >
+                Dates (days) Max
+              </label>
+              <input
+                type="number"
+                value={maxDays}
+                onChange={(e) => setMaxDays(e.target.value)}
+                placeholder="Max"
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 4,
+                  border: "1px solid #ccc",
+                  width: 100,
+                }}
+              />
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 4,
+                  border: "1px solid #ccc",
+                  cursor: "pointer",
+                  background: "#f5f5f5",
+                }}
+              >
+                Clear Filters
+              </button>
+            </div>
+
+            <div style={{ marginLeft: "auto", fontSize: 13 }}>
+              <strong>Total IMEIs (from PO):</strong> {filteredRows.length} /
+              {rows.length}
+            </div>
           </div>
 
           <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
