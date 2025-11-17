@@ -65,9 +65,10 @@ const th: React.CSSProperties = {
 
 const td: React.CSSProperties = {
   padding: "6px 10px",
-  borderBottom: "1px solid "#eee",
+  borderBottom: "1px solid #eee",
   whiteSpace: "nowrap",
 };
+
 
 const HomePage: React.FC = () => {
   const [inventoryFile, setInventoryFile] = useState<File | null>(null);
