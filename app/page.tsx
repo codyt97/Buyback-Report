@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import Papa from "papaparse";
 
 type AnyRow = Record<string, any>;
@@ -48,12 +48,8 @@ function parseCsvFile(file: File): Promise<AnyRow[]> {
     Papa.parse<AnyRow>(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (result) => {
-        resolve(result.data);
-      },
-      error: (error) => {
-        reject(error);
-      },
+      complete: (result) => resolve(result.data),
+      error: (error) => reject(error),
     });
   });
 }
@@ -140,7 +136,7 @@ const HomePage: React.FC = () => {
         parseCsvFile(soFile),
       ]);
 
-      // --- PO (Buyback) map: IMEI -> { bbDate, name, description, familySubcategory } ---
+      // PO map: IMEI -> PO info
       const bbMap = new Map<
         string,
         {
@@ -177,7 +173,7 @@ const HomePage: React.FC = () => {
         }
       }
 
-      // --- SO / ShipDoc map: IMEI -> { shipDate } ---
+      // SO map: IMEI -> ship date
       const shipMap = new Map<string, { shipDate: Date | null }>();
       for (const r of soRows) {
         const rawImei = r["Lot / Serial Number"] ?? r["IMEI"];
@@ -188,14 +184,12 @@ const HomePage: React.FC = () => {
         const existing = shipMap.get(imei);
         if (!existing) {
           shipMap.set(imei, { shipDate });
-        } else {
-          if (shipDate && (!existing.shipDate || shipDate < existing.shipDate)) {
-            existing.shipDate = shipDate;
-          }
+        } else if (shipDate && (!existing.shipDate || shipDate < existing.shipDate)) {
+          existing.shipDate = shipDate;
         }
       }
 
-      // --- Inventory set: IMEIs that are available ---
+      // Inventory set
       const invSet = new Set<string>();
       for (const r of invRows) {
         const rawImei = r["Lot / Serial Number"] ?? r["IMEI"];
@@ -210,12 +204,9 @@ const HomePage: React.FC = () => {
             ? availableRaw.toLowerCase() === "true" || availableRaw === "1"
             : false;
 
-        if (available) {
-          invSet.add(imei);
-        }
+        if (available) invSet.add(imei);
       }
 
-      // Only IMEIs from PO file
       const allImeis = new Set<string>([...bbMap.keys()]);
       const reportDate = new Date();
 
@@ -251,7 +242,7 @@ const HomePage: React.FC = () => {
 
       result.sort((a, b) => a.imei.localeCompare(b.imei));
 
-      // reset filters/sorts when new data comes in
+      // reset filters/sorts
       setSearch("");
       setInventoryFilter("all");
       setMinDays("");
@@ -269,7 +260,7 @@ const HomePage: React.FC = () => {
     }
   };
 
-  // ---- FILTERING ----
+  // FILTERING
   const filteredRows = rows.filter((r) => {
     if (
       search.trim() &&
@@ -294,13 +285,12 @@ const HomePage: React.FC = () => {
     return true;
   });
 
-  // ---- SORTING ----
-  const sortedRows = React.useMemo(() => {
+  // SORTING
+  const sortedRows = useMemo(() => {
     if (!sortField || !sortDirection) return filteredRows;
+    const copy = [...filteredRows];
 
-    const rowsCopy = [...filteredRows];
-
-    rowsCopy.sort((a, b) => {
+    copy.sort((a, b) => {
       const av =
         sortField === "inventoryFlag"
           ? a.inventoryFlag
@@ -311,14 +301,11 @@ const HomePage: React.FC = () => {
           : b.daysDiff ?? Number.POSITIVE_INFINITY;
 
       if (av === bv) return 0;
-      if (sortDirection === "asc") {
-        return av < bv ? -1 : 1;
-      } else {
-        return av > bv ? -1 : 1;
-      }
+      if (sortDirection === "asc") return av < bv ? -1 : 1;
+      return av > bv ? -1 : 1;
     });
 
-    return rowsCopy;
+    return copy;
   }, [filteredRows, sortField, sortDirection]);
 
   const handleClearFilters = () => {
@@ -393,7 +380,7 @@ const HomePage: React.FC = () => {
         style={{
           padding: "8px 16px",
           borderRadius: 6,
-          border: "1px solid "#ccc",
+          border: "1px solid #ccc",
           cursor: "pointer",
           marginBottom: "16px",
         }}
@@ -407,7 +394,7 @@ const HomePage: React.FC = () => {
 
       {rows.length > 0 && (
         <>
-          {/* Top-level filters */}
+          {/* Top filters */}
           <div
             style={{
               display: "flex",
@@ -457,7 +444,7 @@ const HomePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Data table */}
+          {/* Table */}
           <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
             <table
               style={{
@@ -507,17 +494,13 @@ const HomePage: React.FC = () => {
                         <div style={menuBox}>
                           <div
                             style={menuItem}
-                            onClick={() => {
-                              setSort("inventoryFlag", "asc");
-                            }}
+                            onClick={() => setSort("inventoryFlag", "asc")}
                           >
                             ▲ Sort Smallest to Largest
                           </div>
                           <div
                             style={menuItem}
-                            onClick={() => {
-                              setSort("inventoryFlag", "desc");
-                            }}
+                            onClick={() => setSort("inventoryFlag", "desc")}
                           >
                             ▼ Sort Largest to Smallest
                           </div>
@@ -578,17 +561,13 @@ const HomePage: React.FC = () => {
                         <div style={menuBox}>
                           <div
                             style={menuItem}
-                            onClick={() => {
-                              setSort("daysDiff", "asc");
-                            }}
+                            onClick={() => setSort("daysDiff", "asc")}
                           >
                             ▲ Sort Smallest to Largest
                           </div>
                           <div
                             style={menuItem}
-                            onClick={() => {
-                              setSort("daysDiff", "desc");
-                            }}
+                            onClick={() => setSort("daysDiff", "desc")}
                           >
                             ▼ Sort Largest to Smallest
                           </div>
@@ -675,5 +654,5 @@ const HomePage: React.FC = () => {
     </main>
   );
 };
- 
+
 export default HomePage;
