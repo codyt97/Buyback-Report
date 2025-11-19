@@ -18,7 +18,7 @@ type ResultRow = {
 
 type SortField = "inventoryFlag" | "daysDiff" | "familySubcategory" | null;
 type SortDirection = "asc" | "desc" | null;
-type ActiveMenu = "inventory" | "dates" | "family" | null;
+type ActiveMenu = "inventory" | "dates" | "family" | "name" | null;
 
 function parseDateMDY(value: string | undefined | null): Date | null {
   if (!value) return null;
@@ -113,8 +113,10 @@ const HomePage: React.FC = () => {
     "all"
   );
   const [familyFilter, setFamilyFilter] = useState<string>("all");
+  const [nameSuffixFilter, setNameSuffixFilter] = useState<string>("all");
   const [minDays, setMinDays] = useState<string>("");
   const [maxDays, setMaxDays] = useState<string>("");
+
 
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -252,11 +254,13 @@ const HomePage: React.FC = () => {
       setSearch("");
       setInventoryFilter("all");
       setFamilyFilter("all");
+      setNameSuffixFilter("all");
       setMinDays("");
       setMaxDays("");
       setSortField(null);
       setSortDirection(null);
       setActiveMenu(null);
+
 
       setRows(result);
     } catch (e: any) {
@@ -279,11 +283,21 @@ const HomePage: React.FC = () => {
     if (inventoryFilter === "1" && r.inventoryFlag !== 1) return false;
     if (inventoryFilter === "2" && r.inventoryFlag !== 2) return false;
 
-    if (familyFilter !== "all" && r.familySubcategory !== familyFilter) {
+        if (familyFilter !== "all" && r.familySubcategory !== familyFilter) {
       return false;
     }
 
+    // Name suffix filter (based on last 2 digits: 00,10,20,31,35,40,50,55)
+    if (nameSuffixFilter !== "all") {
+      const match = r.name.match(/(\d{2})\s*$/); // last 2 digits at end
+      const suffix = match ? match[1] : null;
+      if (suffix !== nameSuffixFilter) {
+        return false;
+      }
+    }
+
     const min = minDays.trim() ? Number(minDays) : null;
+
     const max = maxDays.trim() ? Number(maxDays) : null;
     const hasDaysFilter = min !== null || max !== null;
 
@@ -325,16 +339,18 @@ const HomePage: React.FC = () => {
     return copy;
   }, [filteredRows, sortField, sortDirection]);
 
-  const handleClearFilters = () => {
+    const handleClearFilters = () => {
     setSearch("");
     setInventoryFilter("all");
     setFamilyFilter("all");
+    setNameSuffixFilter("all");
     setMinDays("");
     setMaxDays("");
     setSortField(null);
     setSortDirection(null);
     setActiveMenu(null);
   };
+
 
   const toggleMenu = (menu: ActiveMenu) => {
     setActiveMenu((prev) => (prev === menu ? null : menu));
@@ -483,8 +499,69 @@ const HomePage: React.FC = () => {
               <thead>
                 <tr>
                   <th style={th}>IMEI</th>
-                  <th style={th}>Name</th>
+                                    {/* Name header with suffix filter menu */}
+                  <th style={th}>
+                    <div
+                      style={{ position: "relative", display: "inline-block" }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>Name</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleMenu("name")}
+                          style={{
+                            border: "1px solid #bbb",
+                            borderRadius: 3,
+                            padding: "0 4px",
+                            fontSize: 10,
+                            background:
+                              activeMenu === "name" ? "#e0e0e0" : "#f5f5f5",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ▼
+                        </button>
+                      </div>
+
+                      {activeMenu === "name" && (
+                        <div style={menuBox}>
+                          <div style={menuItemLabel}>
+                            Filter by last 2 digits
+                          </div>
+                          <div style={{ padding: "2px 0" }}>
+                            <select
+                              value={nameSuffixFilter}
+                              onChange={(e) =>
+                                setNameSuffixFilter(e.target.value)
+                              }
+                              style={{
+                                width: "100%",
+                                padding: "4px 6px",
+                                borderRadius: 3,
+                                border: "1px solid #ccc",
+                              }}
+                            >
+                              <option value="all">All</option>
+                              {NAME_SUFFIXES.map((suf) => (
+                                <option key={suf} value={suf}>
+                                  {suf}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </th>
+
                   <th style={th}>Description</th>
+
 
                   {/* Family Subcategory header with menu */}
                   <th style={th}>
