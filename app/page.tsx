@@ -100,6 +100,8 @@ const menuItemLabel: React.CSSProperties = {
   color: "#555",
 };
 
+const NAME_SUFFIXES = ["00", "10", "20", "31", "35", "40", "50", "55"];
+
 const HomePage: React.FC = () => {
   const [inventoryFile, setInventoryFile] = useState<File | null>(null);
   const [poFile, setPoFile] = useState<File | null>(null);
@@ -116,7 +118,6 @@ const HomePage: React.FC = () => {
   const [nameSuffixFilter, setNameSuffixFilter] = useState<string>("all");
   const [minDays, setMinDays] = useState<string>("");
   const [maxDays, setMaxDays] = useState<string>("");
-
 
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -223,8 +224,8 @@ const HomePage: React.FC = () => {
         const bbDate = bbInfo?.bbDate ?? null;
         const shipDate = shipInfo?.shipDate ?? null;
 
-        // NEW LOGIC:
-        // Inventory = 1 if IMEI is available in snapshot OR has not shipped yet
+        // Inventory flag:
+        // 1 if IMEI is in inventory snapshot OR has not shipped yet
         const inInventory = invSet.has(imei) || !shipDate;
 
         let daysDiff: number | null = null;
@@ -261,7 +262,6 @@ const HomePage: React.FC = () => {
       setSortDirection(null);
       setActiveMenu(null);
 
-
       setRows(result);
     } catch (e: any) {
       console.error(e);
@@ -283,13 +283,13 @@ const HomePage: React.FC = () => {
     if (inventoryFilter === "1" && r.inventoryFlag !== 1) return false;
     if (inventoryFilter === "2" && r.inventoryFlag !== 2) return false;
 
-        if (familyFilter !== "all" && r.familySubcategory !== familyFilter) {
+    if (familyFilter !== "all" && r.familySubcategory !== familyFilter) {
       return false;
     }
 
-    // Name suffix filter (based on last 2 digits: 00,10,20,31,35,40,50,55)
+    // Name suffix filter (based on last 2 digits at end of Name)
     if (nameSuffixFilter !== "all") {
-      const match = r.name.match(/(\d{2})\s*$/); // last 2 digits at end
+      const match = r.name.match(/(\d{2})\s*$/);
       const suffix = match ? match[1] : null;
       if (suffix !== nameSuffixFilter) {
         return false;
@@ -297,7 +297,6 @@ const HomePage: React.FC = () => {
     }
 
     const min = minDays.trim() ? Number(minDays) : null;
-
     const max = maxDays.trim() ? Number(maxDays) : null;
     const hasDaysFilter = min !== null || max !== null;
 
@@ -339,7 +338,7 @@ const HomePage: React.FC = () => {
     return copy;
   }, [filteredRows, sortField, sortDirection]);
 
-    const handleClearFilters = () => {
+  const handleClearFilters = () => {
     setSearch("");
     setInventoryFilter("all");
     setFamilyFilter("all");
@@ -350,7 +349,6 @@ const HomePage: React.FC = () => {
     setSortDirection(null);
     setActiveMenu(null);
   };
-
 
   const toggleMenu = (menu: ActiveMenu) => {
     setActiveMenu((prev) => (prev === menu ? null : menu));
@@ -499,7 +497,8 @@ const HomePage: React.FC = () => {
               <thead>
                 <tr>
                   <th style={th}>IMEI</th>
-                                    {/* Name header with suffix filter menu */}
+
+                  {/* Name header with suffix filter menu */}
                   <th style={th}>
                     <div
                       style={{ position: "relative", display: "inline-block" }}
@@ -562,7 +561,6 @@ const HomePage: React.FC = () => {
 
                   <th style={th}>Description</th>
 
-
                   {/* Family Subcategory header with menu */}
                   <th style={th}>
                     <div style={{ position: "relative", display: "inline-block" }}>
@@ -575,21 +573,20 @@ const HomePage: React.FC = () => {
                       >
                         <span>Family Subcategory</span>
                         <button
-  type="button"
-  onClick={() => toggleMenu("family")}
-  style={{
-    border: "1px solid #bbb",
-    borderRadius: 3,
-    padding: "0 4px",
-    fontSize: 10,
-    background:
-      activeMenu === "family" ? "#e0e0e0" : "#f5f5f5",
-    cursor: "pointer",
-  }}
->
-  ▼
-</button>
-
+                          type="button"
+                          onClick={() => toggleMenu("family")}
+                          style={{
+                            border: "1px solid #bbb",
+                            borderRadius: 3,
+                            padding: "0 4px",
+                            fontSize: 10,
+                            background:
+                              activeMenu === "family" ? "#e0e0e0" : "#f5f5f5",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ▼
+                        </button>
                       </div>
 
                       {activeMenu === "family" && (
@@ -661,7 +658,9 @@ const HomePage: React.FC = () => {
                             padding: "0 4px",
                             fontSize: 10,
                             background:
-                              activeMenu === "inventory" ? "#e0e0e0" : "#f5f5f5",
+                              activeMenu === "inventory"
+                                ? "#e0e0e0"
+                                : "#f5f5f5",
                             cursor: "pointer",
                           }}
                         >
