@@ -2,4 +2,3 @@
 /// <reference types="next/image-types/global" />
 
 // NOTE: This file should not be edited
-decalare module "papaparse";
