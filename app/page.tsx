@@ -84,6 +84,8 @@ const menuBox: React.CSSProperties = {
   padding: 8,
   zIndex: 20,
   fontSize: 12,
+  maxHeight: 260,         // NEW: keep menu from running off screen
+  overflowY: "auto",      // NEW: scroll inside the menu if needed
 };
 
 const menuItem: React.CSSProperties = {
