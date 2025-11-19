@@ -498,20 +498,21 @@ const HomePage: React.FC = () => {
                       >
                         <span>Family Subcategory</span>
                         <button
-                          type="button"
-                          onClick={() => toggleMenu("family")}
-                          style={{
-                            border: "1px solid "#bbb",
-                            borderRadius: 3,
-                            padding: "0 4px",
-                            fontSize: 10,
-                            background:
-                              activeMenu === "family" ? "#e0e0e0" : "#f5f5f5",
-                            cursor: "pointer",
-                          }}
-                        >
-                          ▼
-                        </button>
+  type="button"
+  onClick={() => toggleMenu("family")}
+  style={{
+    border: "1px solid #bbb",
+    borderRadius: 3,
+    padding: "0 4px",
+    fontSize: 10,
+    background:
+      activeMenu === "family" ? "#e0e0e0" : "#f5f5f5",
+    cursor: "pointer",
+  }}
+>
+  ▼
+</button>
+
                       </div>
 
                       {activeMenu === "family" && (
