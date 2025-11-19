@@ -14,6 +14,7 @@ type ResultRow = {
   shipDate?: Date | null;
   inventoryFlag: 1 | 2;
   daysDiff: number | null;
+  ecomSync: boolean;
 };
 
 type SortField = "inventoryFlag" | "daysDiff" | "familySubcategory" | null;
@@ -52,6 +53,23 @@ function parseCsvFile(file: File): Promise<AnyRow[]> {
       error: (error) => reject(error),
     });
   });
+}
+
+function toBool(raw: any): boolean {
+  if (raw === true) return true;
+  if (raw === false || raw == null) return false;
+  const v = String(raw).trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes" || v === "y";
+}
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const arr = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(arr.length / 2);
+  if (arr.length % 2 === 0) {
+    return (arr[mid - 1] + arr[mid]) / 2;
+  }
+  return arr[mid];
 }
 
 const th: React.CSSProperties = {
@@ -148,6 +166,7 @@ const HomePage: React.FC = () => {
           name?: string;
           description?: string;
           familySubcategory?: string;
+          ecomSync?: boolean;
         }
       >();
 
@@ -162,9 +181,22 @@ const HomePage: React.FC = () => {
         const familySubcategory =
           (r["Family Subcategory"] ?? "").toString() || undefined;
 
+        const ecomRaw =
+          r["E-COMMERCE SYNC"] ??
+          r["E-Commerce Sync"] ??
+          r["E-COMMERCE Sync"] ??
+          r["Ecommerce Sync"];
+        const ecomSync = toBool(ecomRaw);
+
         const existing = bbMap.get(imei);
         if (!existing) {
-          bbMap.set(imei, { bbDate, name, description, familySubcategory });
+          bbMap.set(imei, {
+            bbDate,
+            name,
+            description,
+            familySubcategory,
+            ecomSync: ecomSync || undefined,
+          });
         } else {
           if (bbDate && (!existing.bbDate || bbDate < existing.bbDate)) {
             existing.bbDate = bbDate;
@@ -174,6 +206,7 @@ const HomePage: React.FC = () => {
             existing.description = description;
           if (!existing.familySubcategory && familySubcategory)
             existing.familySubcategory = familySubcategory;
+          if (!existing.ecomSync && ecomSync) existing.ecomSync = true;
         }
       }
 
@@ -244,6 +277,7 @@ const HomePage: React.FC = () => {
           shipDate,
           inventoryFlag: inInventory ? 1 : 2,
           daysDiff,
+          ecomSync: !!bbInfo?.ecomSync,
         });
       }
 
@@ -378,6 +412,21 @@ const HomePage: React.FC = () => {
     return Array.from(set).sort();
   }, [rows]);
 
+  // KPIs based on current filtered+sorted rows
+  const shippedMedian = useMemo(() => {
+    const vals = sortedRows
+      .filter((r) => r.shipDate && typeof r.daysDiff === "number")
+      .map((r) => r.daysDiff as number);
+    return median(vals);
+  }, [sortedRows]);
+
+  const inInventoryMedian = useMemo(() => {
+    const vals = sortedRows
+      .filter((r) => !r.shipDate && typeof r.daysDiff === "number")
+      .map((r) => r.daysDiff as number);
+    return median(vals);
+  }, [sortedRows]);
+
   // Download CSV of current sortedRows
   const handleDownloadCsv = () => {
     if (sortedRows.length === 0) return;
@@ -390,6 +439,7 @@ const HomePage: React.FC = () => {
       "BB Date": formatDate(r.bbDate),
       "Ship Date": formatDate(r.shipDate),
       Inventory: r.inventoryFlag,
+      "E-Commerce Sync": r.ecomSync ? "true" : "false",
       Days: typeof r.daysDiff === "number" ? r.daysDiff : "",
     }));
 
@@ -548,7 +598,7 @@ const HomePage: React.FC = () => {
           </div>
 
           {/* Table */}
-          <div style={{ overflowX: "auto", maxHeight: "70vh" }}>
+          <div style={{ overflowX: "auto", maxHeight: "60vh" }}>
             <table
               style={{
                 borderCollapse: "collapse",
@@ -741,7 +791,7 @@ const HomePage: React.FC = () => {
                           gap: 4,
                         }}
                       >
-                        <span>Inventory (1=yes, 2=no)</span>
+                          <span>Inventory (1=yes, 2=no)</span>
                         <button
                           type="button"
                           onClick={() => toggleMenu("inventory")}
@@ -799,6 +849,9 @@ const HomePage: React.FC = () => {
                       )}
                     </div>
                   </th>
+
+                  {/* E-Commerce Sync column */}
+                  <th style={th}>E-Commerce Sync</th>
 
                   {/* Dates header with menu */}
                   <th style={th}>
@@ -912,6 +965,9 @@ const HomePage: React.FC = () => {
                     <td style={td}>{formatDate(r.bbDate)}</td>
                     <td style={td}>{formatDate(r.shipDate)}</td>
                     <td style={td}>{r.inventoryFlag}</td>
+                    <td style={td} aria-label={r.ecomSync ? "Synced" : "Not synced"}>
+                      {r.ecomSync ? "✔︎" : ""}
+                    </td>
                     <td style={td}>
                       {typeof r.daysDiff === "number" ? r.daysDiff : ""}
                     </td>
@@ -919,6 +975,66 @@ const HomePage: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* KPI cards */}
+          <div
+            style={{
+              marginTop: 16,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 16,
+            }}
+          >
+            <div
+              style={{
+                flex: "0 0 260px",
+                padding: 12,
+                borderRadius: 8,
+                border: "1px solid #ddd",
+                background: "#fafafa",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: "#666",
+                  marginBottom: 4,
+                }}
+              >
+                Median Days – Shipped IMEIs
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>
+                {shippedMedian != null ? shippedMedian : "–"}
+              </div>
+            </div>
+
+            <div
+              style={{
+                flex: "0 0 260px",
+                padding: 12,
+                borderRadius: 8,
+                border: "1px solid #ddd",
+                background: "#fafafa",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: "#666",
+                  marginBottom: 4,
+                }}
+              >
+                Median Days – In-Inventory IMEIs
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>
+                {inInventoryMedian != null ? inInventoryMedian : "–"}
+              </div>
+            </div>
           </div>
         </>
       )}
