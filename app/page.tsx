@@ -19,7 +19,7 @@ type ResultRow = {
 
 type SortField = "inventoryFlag" | "daysDiff" | "familySubcategory" | null;
 type SortDirection = "asc" | "desc" | null;
-type ActiveMenu = "inventory" | "dates" | "family" | "name" | null;
+type ActiveMenu = "inventory" | "dates" | "family" | "name" | "ecom" | null;
 
 function parseDateMDY(value: string | undefined | null): Date | null {
   if (!value) return null;
@@ -85,7 +85,7 @@ const th: React.CSSProperties = {
 
 const td: React.CSSProperties = {
   padding: "6px 10px",
-  borderBottom: "1px solid #eee",
+  borderBottom: "1px solid "#eee",
   whiteSpace: "nowrap",
 };
 
@@ -134,6 +134,7 @@ const HomePage: React.FC = () => {
   const [nameSuffixFilter, setNameSuffixFilter] = useState<string[]>([]);
   const [minDays, setMinDays] = useState<string>("");
   const [maxDays, setMaxDays] = useState<string>("");
+  const [ecomFilter, setEcomFilter] = useState<"all" | "true" | "false">("all");
 
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -253,7 +254,14 @@ const HomePage: React.FC = () => {
         const shipInfo = shipMap.get(imei);
 
         const bbDate = bbInfo?.bbDate ?? null;
-        const shipDate = shipInfo?.shipDate ?? null;
+        let shipDate = shipInfo?.shipDate ?? null;
+
+        // If ship date is earlier than BB date, treat as not shipped:
+        // - keep it as inventory
+        // - daysDiff will be today - BB date (handled below)
+        if (bbDate && shipDate && shipDate < bbDate) {
+          shipDate = null;
+        }
 
         // Inventory flag:
         // 1 if IMEI is in inventory snapshot OR has not shipped yet
@@ -290,6 +298,7 @@ const HomePage: React.FC = () => {
       setNameSuffixFilter([]);
       setMinDays("");
       setMaxDays("");
+      setEcomFilter("all");
       setSortField(null);
       setSortDirection(null);
       setActiveMenu(null);
@@ -318,6 +327,10 @@ const HomePage: React.FC = () => {
     if (familyFilter !== "all" && r.familySubcategory !== familyFilter) {
       return false;
     }
+
+    // E-Commerce Sync filter
+    if (ecomFilter === "true" && !r.ecomSync) return false;
+    if (ecomFilter === "false" && r.ecomSync) return false;
 
     // Name suffix multi-select filter (last 2 digits at end of Name)
     if (nameSuffixFilter.length > 0) {
@@ -377,6 +390,7 @@ const HomePage: React.FC = () => {
     setNameSuffixFilter([]);
     setMinDays("");
     setMaxDays("");
+    setEcomFilter("all");
     setSortField(null);
     setSortDirection(null);
     setActiveMenu(null);
@@ -791,7 +805,7 @@ const HomePage: React.FC = () => {
                           gap: 4,
                         }}
                       >
-                          <span>Inventory (1=yes, 2=no)</span>
+                        <span>Inventory (1=yes, 2=no)</span>
                         <button
                           type="button"
                           onClick={() => toggleMenu("inventory")}
@@ -850,8 +864,61 @@ const HomePage: React.FC = () => {
                     </div>
                   </th>
 
-                  {/* E-Commerce Sync column */}
-                  <th style={th}>E-Commerce Sync</th>
+                  {/* E-Commerce Sync column with filter menu */}
+                  <th style={th}>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>E-Commerce Sync</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleMenu("ecom")}
+                          style={{
+                            border: "1px solid #bbb",
+                            borderRadius: 3,
+                            padding: "0 4px",
+                            fontSize: 10,
+                            background:
+                              activeMenu === "ecom" ? "#e0e0e0" : "#f5f5f5",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ▼
+                        </button>
+                      </div>
+
+                      {activeMenu === "ecom" && (
+                        <div style={menuBox}>
+                          <div style={menuItemLabel}>
+                            Filter by E-Commerce Sync
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => setEcomFilter("all")}
+                          >
+                            Show All
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => setEcomFilter("true")}
+                          >
+                            Synced (✓)
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => setEcomFilter("false")}
+                          >
+                            Not Synced (blank)
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </th>
 
                   {/* Dates header with menu */}
                   <th style={th}>
