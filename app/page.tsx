@@ -84,8 +84,8 @@ const menuBox: React.CSSProperties = {
   padding: 8,
   zIndex: 20,
   fontSize: 12,
-  maxHeight: 260,         // NEW: keep menu from running off screen
-  overflowY: "auto",      // NEW: scroll inside the menu if needed
+  maxHeight: 260,
+  overflowY: "auto",
 };
 
 const menuItem: React.CSSProperties = {
@@ -192,7 +192,7 @@ const HomePage: React.FC = () => {
         }
       }
 
-      // Inventory set
+      // Inventory set (from snapshot)
       const invSet = new Set<string>();
       for (const r of invRows) {
         const rawImei = r["Lot / Serial Number"] ?? r["IMEI"];
@@ -217,10 +217,13 @@ const HomePage: React.FC = () => {
       for (const imei of allImeis) {
         const bbInfo = bbMap.get(imei);
         const shipInfo = shipMap.get(imei);
-        const inInventory = invSet.has(imei);
 
         const bbDate = bbInfo?.bbDate ?? null;
         const shipDate = shipInfo?.shipDate ?? null;
+
+        // NEW LOGIC:
+        // Inventory = 1 if IMEI is available in snapshot OR has not shipped yet
+        const inInventory = invSet.has(imei) || !shipDate;
 
         let daysDiff: number | null = null;
         if (bbDate && shipDate) {
@@ -498,7 +501,7 @@ const HomePage: React.FC = () => {
                           type="button"
                           onClick={() => toggleMenu("family")}
                           style={{
-                            border: "1px solid #bbb",
+                            border: "1px solid "#bbb",
                             borderRadius: 3,
                             padding: "0 4px",
                             fontSize: 10,
