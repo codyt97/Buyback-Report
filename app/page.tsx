@@ -62,15 +62,14 @@ function toBool(raw: any): boolean {
   return v === "true" || v === "1" || v === "yes" || v === "y";
 }
 
-function median(values: number[]): number | null {
+function average(values: number[]): number | null {
   if (!values.length) return null;
-  const arr = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(arr.length / 2);
-  if (arr.length % 2 === 0) {
-    return (arr[mid - 1] + arr[mid]) / 2;
-  }
-  return arr[mid];
+  const sum = values.reduce((acc, v) => acc + v, 0);
+  return sum / values.length;
 }
+
+const CONNECTUS_GREEN = "#49B04E";
+const CONNECTUS_GRAY = "#6E6D73";
 
 const th: React.CSSProperties = {
   textAlign: "left",
@@ -426,26 +425,36 @@ const HomePage: React.FC = () => {
     return Array.from(set).sort();
   }, [rows]);
 
-  // KPIs based on current filtered+sorted rows
-  const shippedMedian = useMemo(() => {
+  // KPIs based on current filtered+sorted rows (AVERAGES)
+  const shippedAvg = useMemo(() => {
     const vals = sortedRows
       .filter((r) => r.shipDate && typeof r.daysDiff === "number")
       .map((r) => r.daysDiff as number);
-    return median(vals);
+    return average(vals);
   }, [sortedRows]);
 
-  const inInventoryMedian = useMemo(() => {
+  const inInventoryAvg = useMemo(() => {
     const vals = sortedRows
       .filter((r) => !r.shipDate && typeof r.daysDiff === "number")
       .map((r) => r.daysDiff as number);
-    return median(vals);
+    return average(vals);
   }, [sortedRows]);
 
-  // Download CSV of current sortedRows
+  const shippedCount = useMemo(
+    () => sortedRows.filter((r) => r.shipDate && typeof r.daysDiff === "number").length,
+    [sortedRows]
+  );
+
+  const inInventoryCount = useMemo(
+    () => sortedRows.filter((r) => !r.shipDate && typeof r.daysDiff === "number").length,
+    [sortedRows]
+  );
+
+  // Download CSV of current sortedRows WITH KPI metadata on top
   const handleDownloadCsv = () => {
     if (sortedRows.length === 0) return;
 
-    const data = sortedRows.map((r) => ({
+    const mainData = sortedRows.map((r) => ({
       IMEI: r.imei,
       Name: r.name,
       Description: r.description,
@@ -457,7 +466,26 @@ const HomePage: React.FC = () => {
       Days: typeof r.daysDiff === "number" ? r.daysDiff : "",
     }));
 
-    const csv = Papa.unparse(data as any);
+    const mainCsv = Papa.unparse(mainData as any);
+
+    const metaLines: string[] = [];
+    metaLines.push("Metric,Value");
+    metaLines.push(
+      `Average Days - Shipped IMEIs,${
+        shippedAvg != null ? shippedAvg.toFixed(2) : ""
+      }`
+    );
+    metaLines.push(
+      `Average Days - In-Inventory IMEIs,${
+        inInventoryAvg != null ? inInventoryAvg.toFixed(2) : ""
+      }`
+    );
+    metaLines.push(`Filtered Rows,${sortedRows.length}`);
+    metaLines.push(`Total Rows,${rows.length}`);
+    metaLines.push(""); // blank line separator
+
+    const csv = metaLines.join("\n") + "\n" + mainCsv;
+
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
 
@@ -472,7 +500,13 @@ const HomePage: React.FC = () => {
 
   return (
     <main style={{ padding: "24px", fontFamily: "system-ui, sans-serif" }}>
-      <h1 style={{ fontSize: "24px", marginBottom: "16px" }}>
+      <h1
+        style={{
+          fontSize: "24px",
+          marginBottom: "16px",
+          color: CONNECTUS_GRAY,
+        }}
+      >
         Buyback & Shipping Lifecycle by IMEI
       </h1>
 
@@ -532,8 +566,11 @@ const HomePage: React.FC = () => {
           style={{
             padding: "8px 16px",
             borderRadius: 6,
-            border: "1px solid #ccc",
+            border: `1px solid ${CONNECTUS_GREEN}`,
+            background: loading ? "#f0f0f0" : "#ffffff",
+            color: CONNECTUS_GREEN,
             cursor: "pointer",
+            fontWeight: 600,
           }}
         >
           {loading ? "Processing..." : "Generate Table"}
@@ -546,12 +583,14 @@ const HomePage: React.FC = () => {
           style={{
             padding: "8px 16px",
             borderRadius: 6,
-            border: "1px solid #ccc",
+            border: `1px solid ${CONNECTUS_GRAY}`,
             cursor: sortedRows.length === 0 ? "not-allowed" : "pointer",
-            background: sortedRows.length === 0 ? "#f0f0f0" : "#f5f5f5",
+            background: sortedRows.length === 0 ? "#f0f0f0" : "#ffffff",
+            color: CONNECTUS_GRAY,
+            fontWeight: 600,
           }}
         >
-          Download CSV (filtered)
+          Download CSV (filtered + KPIs)
         </button>
       </div>
 
@@ -606,7 +645,14 @@ const HomePage: React.FC = () => {
               Clear Filters & Sort
             </button>
 
-            <div style={{ marginLeft: "auto", fontSize: 13, marginTop: 22 }}>
+            <div
+              style={{
+                marginLeft: "auto",
+                fontSize: 13,
+                marginTop: 22,
+                color: CONNECTUS_GRAY,
+              }}
+            >
               <strong>Visible IMEIs:</strong> {sortedRows.length} / {rows.length}
             </div>
           </div>
@@ -930,7 +976,7 @@ const HomePage: React.FC = () => {
                           gap: 4,
                         }}
                       >
-                        <span>Dates (days)</span>
+                        <span>Days</span>
                         <button
                           type="button"
                           onClick={() => toggleMenu("dates")}
@@ -1058,8 +1104,8 @@ const HomePage: React.FC = () => {
                 flex: "0 0 260px",
                 padding: 12,
                 borderRadius: 8,
-                border: "1px solid #ddd",
-                background: "#fafafa",
+                border: `1px solid ${CONNECTUS_GREEN}`,
+                background: "#f4fbf6",
               }}
             >
               <div
@@ -1067,14 +1113,24 @@ const HomePage: React.FC = () => {
                   fontSize: 12,
                   textTransform: "uppercase",
                   letterSpacing: 0.5,
-                  color: "#666",
+                  color: CONNECTUS_GRAY,
                   marginBottom: 4,
                 }}
               >
-                Median Days – Shipped IMEIs
+                Average Days – Shipped IMEIs
               </div>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>
-                {shippedMedian != null ? shippedMedian : "–"}
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: CONNECTUS_GREEN,
+                  marginBottom: 4,
+                }}
+              >
+                {shippedAvg != null ? shippedAvg.toFixed(1) : "–"}
+              </div>
+              <div style={{ fontSize: 12, color: CONNECTUS_GRAY }}>
+                {shippedCount} IMEIs in this KPI
               </div>
             </div>
 
@@ -1083,8 +1139,8 @@ const HomePage: React.FC = () => {
                 flex: "0 0 260px",
                 padding: 12,
                 borderRadius: 8,
-                border: "1px solid #ddd",
-                background: "#fafafa",
+                border: `1px solid ${CONNECTUS_GRAY}`,
+                background: "#f7f7f8",
               }}
             >
               <div
@@ -1092,14 +1148,24 @@ const HomePage: React.FC = () => {
                   fontSize: 12,
                   textTransform: "uppercase",
                   letterSpacing: 0.5,
-                  color: "#666",
+                  color: CONNECTUS_GRAY,
                   marginBottom: 4,
                 }}
               >
-                Median Days – In-Inventory IMEIs
+                Average Days – In-Inventory IMEIs
               </div>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>
-                {inInventoryMedian != null ? inInventoryMedian : "–"}
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: CONNECTUS_GRAY,
+                  marginBottom: 4,
+                }}
+              >
+                {inInventoryAvg != null ? inInventoryAvg.toFixed(1) : "–"}
+              </div>
+              <div style={{ fontSize: 12, color: CONNECTUS_GRAY }}>
+                {inInventoryCount} IMEIs in this KPI
               </div>
             </div>
           </div>
