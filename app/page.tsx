@@ -76,7 +76,7 @@ const menuBox: React.CSSProperties = {
   top: "100%",
   left: 0,
   marginTop: 4,
-  minWidth: 200,
+  minWidth: 220,
   background: "#fff",
   border: "1px solid #ccc",
   borderRadius: 4,
@@ -100,8 +100,6 @@ const menuItemLabel: React.CSSProperties = {
   color: "#555",
 };
 
-const NAME_SUFFIXES = ["00", "10", "20", "31", "35", "40", "50", "55"];
-
 const HomePage: React.FC = () => {
   const [inventoryFile, setInventoryFile] = useState<File | null>(null);
   const [poFile, setPoFile] = useState<File | null>(null);
@@ -115,7 +113,7 @@ const HomePage: React.FC = () => {
     "all"
   );
   const [familyFilter, setFamilyFilter] = useState<string>("all");
-  const [nameSuffixFilter, setNameSuffixFilter] = useState<string>("all");
+  const [nameSuffixFilter, setNameSuffixFilter] = useState<string[]>([]);
   const [minDays, setMinDays] = useState<string>("");
   const [maxDays, setMaxDays] = useState<string>("");
 
@@ -255,7 +253,7 @@ const HomePage: React.FC = () => {
       setSearch("");
       setInventoryFilter("all");
       setFamilyFilter("all");
-      setNameSuffixFilter("all");
+      setNameSuffixFilter([]);
       setMinDays("");
       setMaxDays("");
       setSortField(null);
@@ -287,11 +285,11 @@ const HomePage: React.FC = () => {
       return false;
     }
 
-    // Name suffix filter (based on last 2 digits at end of Name)
-    if (nameSuffixFilter !== "all") {
+    // Name suffix multi-select filter (last 2 digits at end of Name)
+    if (nameSuffixFilter.length > 0) {
       const match = r.name.match(/(\d{2})\s*$/);
       const suffix = match ? match[1] : null;
-      if (suffix !== nameSuffixFilter) {
+      if (!suffix || !nameSuffixFilter.includes(suffix)) {
         return false;
       }
     }
@@ -342,7 +340,7 @@ const HomePage: React.FC = () => {
     setSearch("");
     setInventoryFilter("all");
     setFamilyFilter("all");
-    setNameSuffixFilter("all");
+    setNameSuffixFilter([]);
     setMinDays("");
     setMaxDays("");
     setSortField(null);
@@ -367,6 +365,46 @@ const HomePage: React.FC = () => {
     });
     return Array.from(set).sort();
   }, [rows]);
+
+  // distinct Name suffix options (auto-detected, last 2 digits)
+  const nameSuffixOptions = useMemo(() => {
+    const set = new Set<string>();
+    rows.forEach((r) => {
+      const match = r.name.match(/(\d{2})\s*$/);
+      if (match) {
+        set.add(match[1]);
+      }
+    });
+    return Array.from(set).sort();
+  }, [rows]);
+
+  // Download CSV of current sortedRows
+  const handleDownloadCsv = () => {
+    if (sortedRows.length === 0) return;
+
+    const data = sortedRows.map((r) => ({
+      IMEI: r.imei,
+      Name: r.name,
+      Description: r.description,
+      "Family Subcategory": r.familySubcategory,
+      "BB Date": formatDate(r.bbDate),
+      "Ship Date": formatDate(r.shipDate),
+      Inventory: r.inventoryFlag,
+      Days: typeof r.daysDiff === "number" ? r.daysDiff : "",
+    }));
+
+    const csv = Papa.unparse(data as any);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `buyback_report_${new Date()
+      .toISOString()
+      .slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <main style={{ padding: "24px", fontFamily: "system-ui, sans-serif" }}>
@@ -415,19 +453,43 @@ const HomePage: React.FC = () => {
         </div>
       </div>
 
-      <button
-        onClick={handleProcess}
-        disabled={loading}
+      <div
         style={{
-          padding: "8px 16px",
-          borderRadius: 6,
-          border: "1px solid #ccc",
-          cursor: "pointer",
-          marginBottom: "16px",
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          alignItems: "center",
+          marginBottom: 16,
         }}
       >
-        {loading ? "Processing..." : "Generate Table"}
-      </button>
+        <button
+          onClick={handleProcess}
+          disabled={loading}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            cursor: "pointer",
+          }}
+        >
+          {loading ? "Processing..." : "Generate Table"}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleDownloadCsv}
+          disabled={sortedRows.length === 0}
+          style={{
+            padding: "8px 16px",
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            cursor: sortedRows.length === 0 ? "not-allowed" : "pointer",
+            background: sortedRows.length === 0 ? "#f0f0f0" : "#f5f5f5",
+          }}
+        >
+          Download CSV (filtered)
+        </button>
+      </div>
 
       {error && (
         <div style={{ color: "red", marginBottom: "12px" }}>{error}</div>
@@ -498,7 +560,7 @@ const HomePage: React.FC = () => {
                 <tr>
                   <th style={th}>IMEI</th>
 
-                  {/* Name header with suffix filter menu */}
+                  {/* Name header with multi-select suffix filter menu */}
                   <th style={th}>
                     <div
                       style={{ position: "relative", display: "inline-block" }}
@@ -531,28 +593,59 @@ const HomePage: React.FC = () => {
                       {activeMenu === "name" && (
                         <div style={menuBox}>
                           <div style={menuItemLabel}>
-                            Filter by last 2 digits
+                            Filter by last 2 digits (multi-select)
                           </div>
-                          <div style={{ padding: "2px 0" }}>
-                            <select
-                              value={nameSuffixFilter}
-                              onChange={(e) =>
-                                setNameSuffixFilter(e.target.value)
-                              }
-                              style={{
-                                width: "100%",
-                                padding: "4px 6px",
-                                borderRadius: 3,
-                                border: "1px solid #ccc",
-                              }}
-                            >
-                              <option value="all">All</option>
-                              {NAME_SUFFIXES.map((suf) => (
-                                <option key={suf} value={suf}>
-                                  {suf}
-                                </option>
-                              ))}
-                            </select>
+                          <div
+                            style={{
+                              maxHeight: 160,
+                              overflowY: "auto",
+                              padding: "4px 0",
+                            }}
+                          >
+                            {nameSuffixOptions.length === 0 && (
+                              <div style={{ fontSize: 11, color: "#777" }}>
+                                No suffixes detected.
+                              </div>
+                            )}
+                            {nameSuffixOptions.map((suf) => (
+                              <label
+                                key={suf}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  fontSize: 12,
+                                  padding: "2px 4px",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={nameSuffixFilter.includes(suf)}
+                                  onChange={(e) => {
+                                    setNameSuffixFilter((prev) => {
+                                      if (e.target.checked) {
+                                        if (prev.includes(suf)) return prev;
+                                        return [...prev, suf];
+                                      } else {
+                                        return prev.filter((x) => x !== suf);
+                                      }
+                                    });
+                                  }}
+                                />
+                                <span>{suf}</span>
+                              </label>
+                            ))}
+                          </div>
+                          <div
+                            style={{
+                              ...menuItem,
+                              marginTop: 4,
+                              borderTop: "1px solid #eee",
+                              paddingTop: 6,
+                            }}
+                            onClick={() => setNameSuffixFilter([])}
+                          >
+                            Clear Name Filter
                           </div>
                         </div>
                       )}
