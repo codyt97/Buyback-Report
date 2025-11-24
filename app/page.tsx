@@ -15,6 +15,8 @@ type ResultRow = {
   inventoryFlag: 1 | 2;
   daysDiff: number | null;
   ecomSync: boolean;
+  cost?: number | null;
+  price?: number | null;
 };
 
 type SortField = "inventoryFlag" | "daysDiff" | "familySubcategory" | null;
@@ -66,6 +68,22 @@ function average(values: number[]): number | null {
   if (!values.length) return null;
   const sum = values.reduce((acc, v) => acc + v, 0);
   return sum / values.length;
+}
+
+function parseNumber(raw: any): number | null {
+  if (raw == null) return null;
+  const cleaned = String(raw).replace(/[^0-9.-]/g, "");
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return isNaN(n) ? null : n;
+}
+
+function formatMoney(value?: number | null): string {
+  if (value == null) return "";
+  return value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 const CONNECTUS_GREEN = "#49B04E";
@@ -158,7 +176,7 @@ const HomePage: React.FC = () => {
         parseCsvFile(soFile),
       ]);
 
-      // PO map: IMEI -> PO info
+      // PO map: IMEI -> PO info (including Cost)
       const bbMap = new Map<
         string,
         {
@@ -167,6 +185,7 @@ const HomePage: React.FC = () => {
           description?: string;
           familySubcategory?: string;
           ecomSync?: boolean;
+          cost?: number;
         }
       >();
 
@@ -188,6 +207,14 @@ const HomePage: React.FC = () => {
           r["Ecommerce Sync"];
         const ecomSync = toBool(ecomRaw);
 
+        const rawCost =
+          r["Cost"] ??
+          r["Unit Cost"] ??
+          r["Unit cost"] ??
+          r["Buyback Cost"] ??
+          r["Amount"];
+        const cost = parseNumber(rawCost);
+
         const existing = bbMap.get(imei);
         if (!existing) {
           bbMap.set(imei, {
@@ -196,6 +223,7 @@ const HomePage: React.FC = () => {
             description,
             familySubcategory,
             ecomSync: ecomSync || undefined,
+            cost: cost ?? undefined,
           });
         } else {
           if (bbDate && (!existing.bbDate || bbDate < existing.bbDate)) {
@@ -207,22 +235,37 @@ const HomePage: React.FC = () => {
           if (!existing.familySubcategory && familySubcategory)
             existing.familySubcategory = familySubcategory;
           if (!existing.ecomSync && ecomSync) existing.ecomSync = true;
+          if (existing.cost == null && cost != null) existing.cost = cost;
         }
       }
 
-      // SO map: IMEI -> ship date
-      const shipMap = new Map<string, { shipDate: Date | null }>();
+      // SO map: IMEI -> ship info (including Price)
+      const shipMap = new Map<string, { shipDate: Date | null; price?: number }>();
       for (const r of soRows) {
         const rawImei = r["Lot / Serial Number"] ?? r["IMEI"];
         const imei = rawImei ? String(rawImei).trim() : "";
         if (!imei) continue;
 
         const shipDate = parseDateMDY(r["Date"]);
+
+        const rawPrice =
+          r["Price"] ??
+          r["Unit Price"] ??
+          r["Unit price"] ??
+          r["Sale Price"] ??
+          r["Amount"];
+        const price = parseNumber(rawPrice);
+
         const existing = shipMap.get(imei);
         if (!existing) {
-          shipMap.set(imei, { shipDate });
-        } else if (shipDate && (!existing.shipDate || shipDate < existing.shipDate)) {
-          existing.shipDate = shipDate;
+          shipMap.set(imei, { shipDate, price: price ?? undefined });
+        } else {
+          if (shipDate && (!existing.shipDate || shipDate < existing.shipDate)) {
+            existing.shipDate = shipDate;
+          }
+          if (existing.price == null && price != null) {
+            existing.price = price;
+          }
         }
       }
 
@@ -256,14 +299,11 @@ const HomePage: React.FC = () => {
         let shipDate = shipInfo?.shipDate ?? null;
 
         // If ship date is earlier than BB date, treat as not shipped:
-        // - keep it as inventory
-        // - daysDiff will be today - BB date (handled below)
         if (bbDate && shipDate && shipDate < bbDate) {
           shipDate = null;
         }
 
-        // Inventory flag:
-        // 1 if IMEI is in inventory snapshot OR has not shipped yet
+        // Inventory flag: 1 if IMEI is in inventory snapshot OR has not shipped yet
         const inInventory = invSet.has(imei) || !shipDate;
 
         let daysDiff: number | null = null;
@@ -285,6 +325,8 @@ const HomePage: React.FC = () => {
           inventoryFlag: inInventory ? 1 : 2,
           daysDiff,
           ecomSync: !!bbInfo?.ecomSync,
+          cost: bbInfo?.cost ?? null,
+          price: shipInfo?.price ?? null,
         });
       }
 
@@ -441,12 +483,31 @@ const HomePage: React.FC = () => {
   }, [sortedRows]);
 
   const shippedCount = useMemo(
-    () => sortedRows.filter((r) => r.shipDate && typeof r.daysDiff === "number").length,
+    () =>
+      sortedRows.filter(
+        (r) => r.shipDate && typeof r.daysDiff === "number"
+      ).length,
     [sortedRows]
   );
 
   const inInventoryCount = useMemo(
-    () => sortedRows.filter((r) => !r.shipDate && typeof r.daysDiff === "number").length,
+    () =>
+      sortedRows.filter(
+        (r) => !r.shipDate && typeof r.daysDiff === "number"
+      ).length,
+    [sortedRows]
+  );
+
+  // Cost/Price KPIs (totals) based on current filtered+sorted rows
+  const totalCost = useMemo(
+    () =>
+      sortedRows.reduce((sum, r) => sum + (r.cost != null ? r.cost : 0), 0),
+    [sortedRows]
+  );
+
+  const totalPrice = useMemo(
+    () =>
+      sortedRows.reduce((sum, r) => sum + (r.price != null ? r.price : 0), 0),
     [sortedRows]
   );
 
@@ -463,6 +524,8 @@ const HomePage: React.FC = () => {
       "Ship Date": formatDate(r.shipDate),
       Inventory: r.inventoryFlag,
       "E-Commerce Sync": r.ecomSync ? "true" : "false",
+      Cost: r.cost != null ? r.cost : "",
+      Price: r.price != null ? r.price : "",
       Days: typeof r.daysDiff === "number" ? r.daysDiff : "",
     }));
 
@@ -479,6 +542,12 @@ const HomePage: React.FC = () => {
       `Average Days - In-Inventory IMEIs,${
         inInventoryAvg != null ? inInventoryAvg.toFixed(2) : ""
       }`
+    );
+    metaLines.push(
+      `Total Cost,${totalCost ? totalCost.toFixed(2) : "0.00"}`
+    );
+    metaLines.push(
+      `Total Price,${totalPrice ? totalPrice.toFixed(2) : "0.00"}`
     );
     metaLines.push(`Filtered Rows,${sortedRows.length}`);
     metaLines.push(`Total Rows,${rows.length}`);
@@ -841,6 +910,10 @@ const HomePage: React.FC = () => {
                   <th style={th}>BB (Buyback) Date</th>
                   <th style={th}>Ship Date</th>
 
+                  {/* Cost and Price columns */}
+                  <th style={th}>Cost</th>
+                  <th style={th}>Price</th>
+
                   {/* Inventory header with menu */}
                   <th style={th}>
                     <div style={{ position: "relative", display: "inline-block" }}>
@@ -966,7 +1039,7 @@ const HomePage: React.FC = () => {
                     </div>
                   </th>
 
-                  {/* Dates header with menu */}
+                  {/* Days header with menu */}
                   <th style={th}>
                     <div style={{ position: "relative", display: "inline-block" }}>
                       <div
@@ -1077,6 +1150,8 @@ const HomePage: React.FC = () => {
                     <td style={td}>{r.familySubcategory}</td>
                     <td style={td}>{formatDate(r.bbDate)}</td>
                     <td style={td}>{formatDate(r.shipDate)}</td>
+                    <td style={td}>{formatMoney(r.cost)}</td>
+                    <td style={td}>{formatMoney(r.price)}</td>
                     <td style={td}>{r.inventoryFlag}</td>
                     <td style={td} aria-label={r.ecomSync ? "Synced" : "Not synced"}>
                       {r.ecomSync ? "✔︎" : ""}
@@ -1099,6 +1174,7 @@ const HomePage: React.FC = () => {
               gap: 16,
             }}
           >
+            {/* Average Days – Shipped */}
             <div
               style={{
                 flex: "0 0 260px",
@@ -1134,6 +1210,7 @@ const HomePage: React.FC = () => {
               </div>
             </div>
 
+            {/* Average Days – In Inventory */}
             <div
               style={{
                 flex: "0 0 260px",
@@ -1166,6 +1243,78 @@ const HomePage: React.FC = () => {
               </div>
               <div style={{ fontSize: 12, color: CONNECTUS_GRAY }}>
                 {inInventoryCount} IMEIs in this KPI
+              </div>
+            </div>
+
+            {/* Total Cost */}
+            <div
+              style={{
+                flex: "0 0 260px",
+                padding: 12,
+                borderRadius: 8,
+                border: `1px solid ${CONNECTUS_GREEN}`,
+                background: "#f4fbf6",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: CONNECTUS_GRAY,
+                  marginBottom: 4,
+                }}
+              >
+                Total Cost (Filtered)
+              </div>
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: CONNECTUS_GREEN,
+                  marginBottom: 4,
+                }}
+              >
+                {formatMoney(totalCost)}
+              </div>
+              <div style={{ fontSize: 12, color: CONNECTUS_GRAY }}>
+                Based on {sortedRows.length} IMEIs
+              </div>
+            </div>
+
+            {/* Total Price */}
+            <div
+              style={{
+                flex: "0 0 260px",
+                padding: 12,
+                borderRadius: 8,
+                border: `1px solid ${CONNECTUS_GRAY}`,
+                background: "#f7f7f8",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: CONNECTUS_GRAY,
+                  marginBottom: 4,
+                }}
+              >
+                Total Price (Filtered)
+              </div>
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: CONNECTUS_GRAY,
+                  marginBottom: 4,
+                }}
+              >
+                {formatMoney(totalPrice)}
+              </div>
+              <div style={{ fontSize: 12, color: CONNECTUS_GRAY }}>
+                Based on {sortedRows.length} IMEIs
               </div>
             </div>
           </div>
