@@ -21,9 +21,23 @@ type ResultRow = {
   unsoldValue?: number | null; // Cost of units still in inventory
 };
 
-type SortField = "inventoryFlag" | "daysDiff" | "familySubcategory" | null;
+type SortField =
+  | "inventoryFlag"
+  | "daysDiff"
+  | "familySubcategory"
+  | "bbDate"
+  | "shipDate"
+  | null;
 type SortDirection = "asc" | "desc" | null;
-type ActiveMenu = "inventory" | "dates" | "family" | "name" | "ecom" | null;
+type ActiveMenu =
+  | "inventory"
+  | "dates"
+  | "family"
+  | "name"
+  | "ecom"
+  | "bbDate"
+  | "shipDate"
+  | null;
 
 function parseDateMDY(value: string | undefined | null): Date | null {
   if (!value) return null;
@@ -46,6 +60,15 @@ function formatDate(dt?: Date | null): string {
   const m = (dt.getMonth() + 1).toString().padStart(2, "0");
   const d = dt.getDate().toString().padStart(2, "0");
   return `${m}/${d}/${y}`;
+}
+
+// Parse yyyy-mm-dd from <input type="date">
+function parseDateInput(value: string): Date | null {
+  if (!value) return null;
+  const [y, m, d] = value.split("-");
+  if (!y || !m || !d) return null;
+  const dt = new Date(Number(y), Number(m) - 1, Number(d));
+  return isNaN(dt.getTime()) ? null : dt;
 }
 
 function parseCsvFile(file: File): Promise<AnyRow[]> {
@@ -154,6 +177,12 @@ const HomePage: React.FC = () => {
   const [minDays, setMinDays] = useState<string>("");
   const [maxDays, setMaxDays] = useState<string>("");
   const [ecomFilter, setEcomFilter] = useState<"all" | "true" | "false">("all");
+
+  // new: date range filters
+  const [bbMinDate, setBbMinDate] = useState<string>("");
+  const [bbMaxDate, setBbMaxDate] = useState<string>("");
+  const [shipMinDate, setShipMinDate] = useState<string>("");
+  const [shipMaxDate, setShipMaxDate] = useState<string>("");
 
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -352,6 +381,10 @@ const HomePage: React.FC = () => {
       setMinDays("");
       setMaxDays("");
       setEcomFilter("all");
+      setBbMinDate("");
+      setBbMaxDate("");
+      setShipMinDate("");
+      setShipMaxDate("");
       setSortField(null);
       setSortDirection(null);
       setActiveMenu(null);
@@ -394,6 +427,7 @@ const HomePage: React.FC = () => {
       }
     }
 
+    // Days filter
     const min = minDays.trim() ? Number(minDays) : null;
     const max = maxDays.trim() ? Number(maxDays) : null;
     const hasDaysFilter = min !== null || max !== null;
@@ -402,6 +436,24 @@ const HomePage: React.FC = () => {
       if (typeof r.daysDiff !== "number") return false;
       if (min !== null && r.daysDiff < min) return false;
       if (max !== null && r.daysDiff > max) return false;
+    }
+
+    // BB Date range filter
+    const bbFrom = bbMinDate ? parseDateInput(bbMinDate) : null;
+    const bbTo = bbMaxDate ? parseDateInput(bbMaxDate) : null;
+    if (bbFrom || bbTo) {
+      if (!r.bbDate) return false;
+      if (bbFrom && r.bbDate < bbFrom) return false;
+      if (bbTo && r.bbDate > bbTo) return false;
+    }
+
+    // Ship Date range filter
+    const shipFrom = shipMinDate ? parseDateInput(shipMinDate) : null;
+    const shipTo = shipMaxDate ? parseDateInput(shipMaxDate) : null;
+    if (shipFrom || shipTo) {
+      if (!r.shipDate) return false;
+      if (shipFrom && r.shipDate < shipFrom) return false;
+      if (shipTo && r.shipDate > shipTo) return false;
     }
 
     return true;
@@ -422,6 +474,12 @@ const HomePage: React.FC = () => {
       } else if (sortField === "daysDiff") {
         av = a.daysDiff ?? Number.POSITIVE_INFINITY;
         bv = b.daysDiff ?? Number.POSITIVE_INFINITY;
+      } else if (sortField === "bbDate") {
+        av = a.bbDate ? a.bbDate.getTime() : Number.POSITIVE_INFINITY;
+        bv = b.bbDate ? b.bbDate.getTime() : Number.POSITIVE_INFINITY;
+      } else if (sortField === "shipDate") {
+        av = a.shipDate ? a.shipDate.getTime() : Number.POSITIVE_INFINITY;
+        bv = b.shipDate ? b.shipDate.getTime() : Number.POSITIVE_INFINITY;
       } else {
         // familySubcategory
         av = a.familySubcategory || "";
@@ -444,6 +502,10 @@ const HomePage: React.FC = () => {
     setMinDays("");
     setMaxDays("");
     setEcomFilter("all");
+    setBbMinDate("");
+    setBbMaxDate("");
+    setShipMinDate("");
+    setShipMaxDate("");
     setSortField(null);
     setSortDirection(null);
     setActiveMenu(null);
@@ -950,10 +1012,227 @@ const HomePage: React.FC = () => {
                     </div>
                   </th>
 
-                  <th style={th}>BB (Buyback) Date</th>
-                  <th style={th}>Ship Date</th>
+                  {/* BB Date header with menu */}
+                  <th style={th}>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>BB (Buyback) Date</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleMenu("bbDate")}
+                          style={{
+                            border: "1px solid #bbb",
+                            borderRadius: 3,
+                            padding: "0 4px",
+                            fontSize: 10,
+                            background:
+                              activeMenu === "bbDate" ? "#e0e0e0" : "#f5f5f5",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ▼
+                        </button>
+                      </div>
 
-                  {/* Cost and Price columns */}
+                      {activeMenu === "bbDate" && (
+                        <div style={menuBox}>
+                          <div
+                            style={menuItem}
+                            onClick={() => setSort("bbDate", "asc")}
+                          >
+                            ▲ Sort Oldest to Newest
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => setSort("bbDate", "desc")}
+                          >
+                            ▼ Sort Newest to Oldest
+                          </div>
+                          <hr style={{ margin: "6px 0" }} />
+                          <div style={menuItemLabel}>Filter by BB Date</div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 4,
+                              marginBottom: 6,
+                            }}
+                          >
+                            <label
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 11,
+                              }}
+                            >
+                              <span>From</span>
+                              <input
+                                type="date"
+                                value={bbMinDate}
+                                onChange={(e) => setBbMinDate(e.target.value)}
+                                style={{
+                                  flex: 1,
+                                  padding: "2px 4px",
+                                  borderRadius: 3,
+                                  border: "1px solid #ccc",
+                                }}
+                              />
+                            </label>
+                            <label
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 11,
+                              }}
+                            >
+                              <span>To</span>
+                              <input
+                                type="date"
+                                value={bbMaxDate}
+                                onChange={(e) => setBbMaxDate(e.target.value)}
+                                style={{
+                                  flex: 1,
+                                  padding: "2px 4px",
+                                  borderRadius: 3,
+                                  border: "1px solid #ccc",
+                                }}
+                              />
+                            </label>
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => {
+                              setBbMinDate("");
+                              setBbMaxDate("");
+                            }}
+                          >
+                            Clear BB Date Filter
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </th>
+
+                  {/* Ship Date header with menu */}
+                  <th style={th}>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <span>Ship Date</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleMenu("shipDate")}
+                          style={{
+                            border: "1px solid #bbb",
+                            borderRadius: 3,
+                            padding: "0 4px",
+                            fontSize: 10,
+                            background:
+                              activeMenu === "shipDate"
+                                ? "#e0e0e0"
+                                : "#f5f5f5",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ▼
+                        </button>
+                      </div>
+
+                      {activeMenu === "shipDate" && (
+                        <div style={menuBox}>
+                          <div
+                            style={menuItem}
+                            onClick={() => setSort("shipDate", "asc")}
+                          >
+                            ▲ Sort Oldest to Newest
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => setSort("shipDate", "desc")}
+                          >
+                            ▼ Sort Newest to Oldest
+                          </div>
+                          <hr style={{ margin: "6px 0" }} />
+                          <div style={menuItemLabel}>Filter by Ship Date</div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 4,
+                              marginBottom: 6,
+                            }}
+                          >
+                            <label
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 11,
+                              }}
+                            >
+                              <span>From</span>
+                              <input
+                                type="date"
+                                value={shipMinDate}
+                                onChange={(e) => setShipMinDate(e.target.value)}
+                                style={{
+                                  flex: 1,
+                                  padding: "2px 4px",
+                                  borderRadius: 3,
+                                  border: "1px solid #ccc",
+                                }}
+                              />
+                            </label>
+                            <label
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                fontSize: 11,
+                              }}
+                            >
+                              <span>To</span>
+                              <input
+                                type="date"
+                                value={shipMaxDate}
+                                onChange={(e) => setShipMaxDate(e.target.value)}
+                                style={{
+                                  flex: 1,
+                                  padding: "2px 4px",
+                                  borderRadius: 3,
+                                  border: "1px solid #ccc",
+                                }}
+                              />
+                            </label>
+                          </div>
+                          <div
+                            style={menuItem}
+                            onClick={() => {
+                              setShipMinDate("");
+                              setShipMaxDate("");
+                            }}
+                          >
+                            Clear Ship Date Filter
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </th>
+
+                  {/* Cost / Price / GP / Unsold */}
                   <th style={th}>Cost</th>
                   <th style={th}>Price</th>
                   <th style={th}>GP (Price - Cost)</th>
