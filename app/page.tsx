@@ -17,6 +17,8 @@ type ResultRow = {
   ecomSync: boolean;
   cost?: number | null;
   price?: number | null;
+  gp?: number | null; // Price - Cost
+  unsoldValue?: number | null; // Cost of units still in inventory
 };
 
 type SortField = "inventoryFlag" | "daysDiff" | "familySubcategory" | null;
@@ -207,12 +209,11 @@ const HomePage: React.FC = () => {
           r["Ecommerce Sync"];
         const ecomSync = toBool(ecomRaw);
 
-        const rawCost =
-          r["Cost"] ??
-          r["Unit Cost"] ??
-          r["Unit cost"] ??
-          r["Buyback Cost"] ??
-          r["Amount"];
+        // Cost: pick any column whose header contains "cost"
+        const costKey = Object.keys(r).find((k) =>
+          k.toLowerCase().includes("cost")
+        );
+        const rawCost = costKey ? r[costKey] : undefined;
         const cost = parseNumber(rawCost);
 
         const existing = bbMap.get(imei);
@@ -248,12 +249,11 @@ const HomePage: React.FC = () => {
 
         const shipDate = parseDateMDY(r["Date"]);
 
-        const rawPrice =
-          r["Price"] ??
-          r["Unit Price"] ??
-          r["Unit price"] ??
-          r["Sale Price"] ??
-          r["Amount"];
+        // Price: pick any column whose header contains "price"
+        const priceKey = Object.keys(r).find((k) =>
+          k.toLowerCase().includes("price")
+        );
+        const rawPrice = priceKey ? r[priceKey] : undefined;
         const price = parseNumber(rawPrice);
 
         const existing = shipMap.get(imei);
@@ -315,6 +315,16 @@ const HomePage: React.FC = () => {
           daysDiff = Math.round(diffMs / (1000 * 60 * 60 * 24));
         }
 
+        const costVal = bbInfo?.cost ?? null;
+        const priceVal = shipInfo?.price ?? null;
+
+        const gp =
+          costVal != null && priceVal != null ? priceVal - costVal : null;
+
+        // Unsold value: cost of units still in inventory (no ship date)
+        const unsoldValue =
+          inInventory && !shipDate && costVal != null ? costVal : null;
+
         result.push({
           imei,
           name: bbInfo?.name ?? "",
@@ -325,8 +335,10 @@ const HomePage: React.FC = () => {
           inventoryFlag: inInventory ? 1 : 2,
           daysDiff,
           ecomSync: !!bbInfo?.ecomSync,
-          cost: bbInfo?.cost ?? null,
-          price: shipInfo?.price ?? null,
+          cost: costVal,
+          price: priceVal,
+          gp,
+          unsoldValue,
         });
       }
 
@@ -498,7 +510,7 @@ const HomePage: React.FC = () => {
     [sortedRows]
   );
 
-  // Cost/Price KPIs (totals) based on current filtered+sorted rows
+  // Cost/Price/GP/Unsold KPIs (totals) based on current filtered+sorted rows
   const totalCost = useMemo(
     () =>
       sortedRows.reduce((sum, r) => sum + (r.cost != null ? r.cost : 0), 0),
@@ -509,6 +521,26 @@ const HomePage: React.FC = () => {
     () =>
       sortedRows.reduce((sum, r) => sum + (r.price != null ? r.price : 0), 0),
     [sortedRows]
+  );
+
+  const totalGp = useMemo(
+    () =>
+      sortedRows.reduce((sum, r) => sum + (r.gp != null ? r.gp : 0), 0),
+    [sortedRows]
+  );
+
+  const unsoldTotal = useMemo(
+    () =>
+      sortedRows.reduce(
+        (sum, r) => sum + (r.unsoldValue != null ? r.unsoldValue : 0),
+        0
+      ),
+    [sortedRows]
+  );
+
+  const netCashflow = useMemo(
+    () => totalPrice - totalCost,
+    [totalPrice, totalCost]
   );
 
   // Download CSV of current sortedRows WITH KPI metadata on top
@@ -522,10 +554,12 @@ const HomePage: React.FC = () => {
       "Family Subcategory": r.familySubcategory,
       "BB Date": formatDate(r.bbDate),
       "Ship Date": formatDate(r.shipDate),
-      Inventory: r.inventoryFlag,
-      "E-Commerce Sync": r.ecomSync ? "true" : "false",
       Cost: r.cost != null ? r.cost : "",
       Price: r.price != null ? r.price : "",
+      GP: r.gp != null ? r.gp : "",
+      "Unsold Value": r.unsoldValue != null ? r.unsoldValue : "",
+      Inventory: r.inventoryFlag,
+      "E-Commerce Sync": r.ecomSync ? "true" : "false",
       Days: typeof r.daysDiff === "number" ? r.daysDiff : "",
     }));
 
@@ -548,6 +582,15 @@ const HomePage: React.FC = () => {
     );
     metaLines.push(
       `Total Price,${totalPrice ? totalPrice.toFixed(2) : "0.00"}`
+    );
+    metaLines.push(
+      `Total GP (Price - Cost),${totalGp ? totalGp.toFixed(2) : "0.00"}`
+    );
+    metaLines.push(
+      `Unsold Inventory Value,${unsoldTotal ? unsoldTotal.toFixed(2) : "0.00"}`
+    );
+    metaLines.push(
+      `Net Cashflow (Price - Cost),${netCashflow ? netCashflow.toFixed(2) : "0.00"}`
     );
     metaLines.push(`Filtered Rows,${sortedRows.length}`);
     metaLines.push(`Total Rows,${rows.length}`);
@@ -913,6 +956,8 @@ const HomePage: React.FC = () => {
                   {/* Cost and Price columns */}
                   <th style={th}>Cost</th>
                   <th style={th}>Price</th>
+                  <th style={th}>GP (Price - Cost)</th>
+                  <th style={th}>Unsold Value</th>
 
                   {/* Inventory header with menu */}
                   <th style={th}>
@@ -1152,6 +1197,8 @@ const HomePage: React.FC = () => {
                     <td style={td}>{formatDate(r.shipDate)}</td>
                     <td style={td}>{formatMoney(r.cost)}</td>
                     <td style={td}>{formatMoney(r.price)}</td>
+                    <td style={td}>{formatMoney(r.gp)}</td>
+                    <td style={td}>{formatMoney(r.unsoldValue)}</td>
                     <td style={td}>{r.inventoryFlag}</td>
                     <td style={td} aria-label={r.ecomSync ? "Synced" : "Not synced"}>
                       {r.ecomSync ? "✔︎" : ""}
@@ -1315,6 +1362,78 @@ const HomePage: React.FC = () => {
               </div>
               <div style={{ fontSize: 12, color: CONNECTUS_GRAY }}>
                 Based on {sortedRows.length} IMEIs
+              </div>
+            </div>
+
+            {/* Net Cashflow */}
+            <div
+              style={{
+                flex: "0 0 260px",
+                padding: 12,
+                borderRadius: 8,
+                border: `1px solid ${CONNECTUS_GREEN}`,
+                background: "#f4fbf6",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: CONNECTUS_GRAY,
+                  marginBottom: 4,
+                }}
+              >
+                Net Cashflow (Price - Cost)
+              </div>
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: netCashflow >= 0 ? CONNECTUS_GREEN : "#D64545",
+                  marginBottom: 4,
+                }}
+              >
+                {formatMoney(netCashflow)}
+              </div>
+              <div style={{ fontSize: 12, color: CONNECTUS_GRAY }}>
+                Based on {sortedRows.length} IMEIs
+              </div>
+            </div>
+
+            {/* Unsold Inventory Value */}
+            <div
+              style={{
+                flex: "0 0 260px",
+                padding: 12,
+                borderRadius: 8,
+                border: `1px solid ${CONNECTUS_GRAY}`,
+                background: "#f7f7f8",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  color: CONNECTUS_GRAY,
+                  marginBottom: 4,
+                }}
+              >
+                Unsold Inventory Value
+              </div>
+              <div
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: CONNECTUS_GRAY,
+                  marginBottom: 4,
+                }}
+              >
+                {formatMoney(unsoldTotal)}
+              </div>
+              <div style={{ fontSize: 12, color: CONNECTUS_GRAY }}>
+                Cost of IMEIs still in inventory
               </div>
             </div>
           </div>
